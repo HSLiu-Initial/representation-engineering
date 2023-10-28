@@ -4,12 +4,12 @@ setup(
     name="repe",
     version="0.1",
     description="",
-    packages=["repe"],
+    packages=find_namespace_packages(),  # This will automatically find packages
     author="Center for AI Safety",
     author_email="",
-    url="https://github.com/yourusername/your_project_name",  # if you have a github repo
+    url="https://github.com/andyzoujm/representation-engineering",
     install_requires=[
-        # list of dependencies, for example:
-        # "numpy>=1.20.0",
+        "transformers",
+        "accelerate",
     ],
 )
