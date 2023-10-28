@@ -27,8 +27,8 @@ def honesty_function_dataset(data_path: str, tokenizer: PreTrainedTokenizer, use
 
     # Load the data
     df = pd.read_csv(data_path)
-    true_statements = df[df['label'] == 1]['statement'].values.tolist()
-    false_statements = df[df['label'] == 0]['statement'].values.tolist()
+    true_statements = df[df['label'] == 1]['statement'].values.tolist() # list of true statements 
+    false_statements = df[df['label'] == 0]['statement'].values.tolist() # list of false statements
 
     template_str = "Pretend you're {type} person making statements about the world."
     honest_statements = []
@@ -36,34 +36,36 @@ def honesty_function_dataset(data_path: str, tokenizer: PreTrainedTokenizer, use
 
     # Process statements
     for statement in true_statements:
-        tokens = tokenizer.tokenize(statement)
+        tokens = tokenizer.tokenize(statement) # tokenize statement
         
-        for idx in range(1, len(tokens) - 5):
-            truncated_tokens = tokens[:idx]
-            truncated_statement = tokenizer.convert_tokens_to_string(truncated_tokens)
-
-            honest_statements.append(f"{user_tag} {template_str.format(type='an honest')} {assistant_tag} " + truncated_statement)
+        for idx in range(1, len(tokens) - 5): # iterate over tokens 不包括最后6个token
+            truncated_tokens = tokens[:idx] 
+            truncated_statement = tokenizer.convert_tokens_to_string(truncated_tokens) # convert tokens to string
+            # 根据模板生成诚实和不诚实的语句
+            honest_statements.append(f"{user_tag} {template_str.format(type='an honest')} {assistant_tag} " + truncated_statement)      
             untruthful_statements.append(f"{user_tag} {template_str.format(type='an untruthful')} {assistant_tag} " + truncated_statement)
 
     # Create training data
-    ntrain = 512
-    combined_data = [[honest, untruthful] for honest, untruthful in zip(honest_statements, untruthful_statements)]
-    train_data = combined_data[:ntrain]
+    # ntrain = 512 原始的
+    ntrain = 2 # 为了测试方便，改成2
+    # 为每个配对创建一个子列表，其中包含一个诚实的语句和一个不诚实的语句。
+    combined_data = [[honest, untruthful] for honest, untruthful in zip(honest_statements, untruthful_statements)] # combine honest and untruthful statements
+    train_data = combined_data[:ntrain] # split into train and test data 比如一共有2342个配对，那么前512个配对是train，后面的是test
 
     train_labels = []
     for d in train_data:
-        true_s = d[0]
-        random.shuffle(d)
-        train_labels.append([s == true_s for s in d])
+        true_s = d[0] # 诚实的语句【将其视为真实的语句】
+        random.shuffle(d) # 随机打乱数据点d中的两个语句。这意味着诚实的语句和不诚实的语句的顺序现在是随机的。
+        train_labels.append([s == true_s for s in d]) # 为每个配对创建一个标签，其中包含一个布尔值列表，指示每个语句是否为真实的语句。没有用到真实的标签，只是根据模板人为创建了一个伪标签。
     
-    train_data = np.concatenate(train_data).tolist()
+    train_data = np.concatenate(train_data).tolist() # 将train_data中的两个子列表合并为一个列表，原本是配对的，现在不配对了
 
     # Create test data
-    reshaped_data = np.array([[honest, untruthful] for honest, untruthful in zip(honest_statements[:-1], untruthful_statements[1:])]).flatten()
-    test_data = reshaped_data[ntrain:ntrain*2].tolist()
+    reshaped_data = np.array([[honest, untruthful] for honest, untruthful in zip(honest_statements[:-1], untruthful_statements[1:])]).flatten() # 包含交错的诚实和不诚实的语句。例如[第一个样本的truthful_statement, 第二个样本的untruthful_statement, 第二个样本的truthful_statement, 第三个样本的untruthful_statement, ...]
+    test_data = reshaped_data[ntrain:ntrain*2].tolist()  # 包含了从honest_statements的第ntrain/2个样本的truthful_statement到untruthful_statements的第ntrain个样本的untruthful_statement。
 
     print(f"Train data: {len(train_data)}")
-    print(f"Test data: {len(test_data)}")
+    print(f"Test data: {len(test_data)}") # 实际上可以看作拿训练集的后半部分作为测试集，因为训练的时候没有用到label所以可行
 
     return {
         'train': {'data': train_data, 'labels': train_labels},

@@ -122,7 +122,7 @@ class PCARepReader(RepReader):
 
     def __init__(self, n_components=1):
         super().__init__()
-        self.n_components = n_components
+        self.n_components = n_components # 就是n_difference
         self.H_train_means = {}
 
     def get_rep_directions(self, model, tokenizer, hidden_states, hidden_layers, **kwargs):
@@ -130,13 +130,13 @@ class PCARepReader(RepReader):
         directions = {}
 
         for layer in hidden_layers:
-            H_train = np.array(hidden_states[layer])
+            H_train = np.array(hidden_states[layer]) # 提取每一层的差距向量们 shape(train/2, 4096)
 
-            H_train_mean = H_train.mean(axis=0, keepdims=True)
+            H_train_mean = H_train.mean(axis=0, keepdims=True) # shape(1, 4096) 对每一列求均值，其实就是对差异向量跨样本求均值
             self.H_train_means[layer] = H_train_mean
-            H_train = recenter(H_train, mean=H_train_mean)
+            H_train = recenter(H_train, mean=H_train_mean) # 减去均值【PCA的要求】
 
-            pca_model = PCA(n_components=self.n_components, whiten=False).fit(H_train)
+            pca_model = PCA(n_components=self.n_components, whiten=False).fit(H_train) # 对于每一层都求了一个PCA whiten=False表示不对数据进行标准化处理【方差不是1】
 
             directions[layer] = pca_model.components_ # shape (n_components, n_features)
             self.n_components = pca_model.n_components_
@@ -152,23 +152,23 @@ class PCARepReader(RepReader):
             layer_hidden_states = hidden_states[layer]
 
             # NOTE: since scoring is ultimately comparative, the effect of this is moot
-            layer_hidden_states = recenter(layer_hidden_states, mean=self.H_train_means[layer])
+            layer_hidden_states = recenter(layer_hidden_states, mean=self.H_train_means[layer]) # 对hidden states按照之前用relative hidden states得到的均值进行recenter
 
             # get the signs for each component
             layer_signs = np.zeros(self.n_components)
             for component_index in range(self.n_components):
 
-                transformed_hidden_states = project_onto_direction(layer_hidden_states, self.directions[layer][component_index])
+                transformed_hidden_states = project_onto_direction(layer_hidden_states, self.directions[layer][component_index]) # 在第一主成分方向进行投影，shape: (batch,)
                 
-                pca_outputs_comp = [list(islice(transformed_hidden_states, sum(len(c) for c in train_labels[:i]), sum(len(c) for c in train_labels[:i+1]))) for i in range(len(train_labels))]
+                pca_outputs_comp = [list(islice(transformed_hidden_states, sum(len(c) for c in train_labels[:i]), sum(len(c) for c in train_labels[:i+1]))) for i in range(len(train_labels))] # 对于每个训练标签，提取与之对应的投影后的分数。
 
                 # We do elements instead of argmin/max because sometimes we pad random choices in training
-                pca_outputs_min = np.mean([o[train_labels[i].index(1)] == min(o) for i, o in enumerate(pca_outputs_comp)])
+                pca_outputs_min = np.mean([o[train_labels[i].index(1)] == min(o) for i, o in enumerate(pca_outputs_comp)]) # 具体来说，它遍历每个pca_outputs_comp（即转换后的隐藏状态），并检查每个状态中的最小值是否与标签为1的位置相匹配。这会返回一个布尔值的列表，然后计算这个列表的平均值，得到最小值的平均出现频率。
                 pca_outputs_max = np.mean([o[train_labels[i].index(1)] == max(o) for i, o in enumerate(pca_outputs_comp)])
 
        
-                layer_signs[component_index] = np.sign(np.mean(pca_outputs_max) - np.mean(pca_outputs_min))
-                if layer_signs[component_index] == 0:
+                layer_signs[component_index] = np.sign(np.mean(pca_outputs_max) - np.mean(pca_outputs_min)) # 如果最大值的平均出现频率大于最小值的平均出现频率，则为1【不需要改变方向】，否则为-1。这个值是一个标量，表示这个方向的正负性。
+                if layer_signs[component_index] == 0: # 两个方向都可以
                     layer_signs[component_index] = 1 # default to positive in case of tie
 
             signs[layer] = layer_signs

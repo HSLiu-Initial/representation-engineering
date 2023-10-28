@@ -86,6 +86,10 @@ class RepReadingPipeline(Pipeline):
 
 
     def _batched_string_to_hiddens(self, train_inputs, rep_token, hidden_layers, batch_size, which_hidden_states, **tokenizer_args):
+        """
+        Returns:
+        - A dictionary where keys are layer numbers and values are the corresponding hidden states.
+        """
         # Wrapper method to get a dictionary hidden states from a list of strings
         hidden_states_outputs = self(train_inputs, rep_token=rep_token,
             hidden_layers=hidden_layers, batch_size=batch_size, rep_reader=None, which_hidden_states=which_hidden_states, **tokenizer_args)
@@ -123,26 +127,26 @@ class RepReadingPipeline(Pipeline):
             assert isinstance(hidden_layers, int)
             hidden_layers = [hidden_layers]
         
-        self._validate_params(n_difference, direction_method)
+        self._validate_params(n_difference, direction_method)  # validate params for get_directions 如果方法是cluster_mean,那么n_difference必须为1
 
         # initialize a DirectionFinder
-        direction_finder = DIRECTION_FINDERS[direction_method](**direction_finder_kwargs)
+        direction_finder = DIRECTION_FINDERS[direction_method](**direction_finder_kwargs) # 比如例子中就是PCARepReader
 
 		# if relevant, get the hidden state data for training set
         hidden_states = None
         relative_hidden_states = None
-        if direction_finder.needs_hiddens:
-            # get raw hidden states for the train inputs
-            hidden_states = self._batched_string_to_hiddens(train_inputs, rep_token, hidden_layers, batch_size, which_hidden_states, **tokenizer_args)
+        if direction_finder.needs_hiddens: # 这个方法是否需要hidden states, 比如PCARepReader需要
+            # get raw hidden states for the train inputs；只取了最后一层的hidden states【rep_token=-1】
+            hidden_states = self._batched_string_to_hiddens(train_inputs, rep_token, hidden_layers, batch_size, which_hidden_states, **tokenizer_args) # key是layer，value是每个batch的hidden states的连接在一起的结果 shape: (n_samples 1024, hidden_size 4096)
             
             # get differences between pairs
-            relative_hidden_states = {k: np.copy(v) for k, v in hidden_states.items()}
-            for layer in hidden_layers:
-                for _ in range(n_difference):
-                    relative_hidden_states[layer] = relative_hidden_states[layer][::2] - relative_hidden_states[layer][1::2]
+            relative_hidden_states = {k: np.copy(v) for k, v in hidden_states.items()} # key保持相同，但是value是原dict的deepcopy；处理过后value的shape会减半(n_samples/2 512, hidden_size 4096)
+            for layer in hidden_layers: # 对每一层都进行操作
+                for _ in range(n_difference): # n_difference是一个整数，表示要计算差异的次数。起的是一个成对的概念【因为truthful和untruthful在train dataset中是配对的】
+                    relative_hidden_states[layer] = relative_hidden_states[layer][::2] - relative_hidden_states[layer][1::2] # 从每个层的hidden states中获取每个样本的差异。例如，如果n_difference为1，则将每个样本的第一个隐藏状态与其后一个隐藏状态相减。如果n_difference为2，则将每个样本的第一个隐藏状态与其第三个隐藏状态相减，依此类推。它从relative_hidden_states中的每个偶数项（索引为0, 2, 4, ...）中减去相应的奇数项（索引为1, 3, 5, ...）。这样，我们得到了每对连续隐藏状态之间的差异。
 
 		# get the directions
-        direction_finder.directions = direction_finder.get_rep_directions(
+        direction_finder.directions = direction_finder.get_rep_directions( # 对每一层都求了个pca dict，key是layer，value是pca的第一主成分【不进行标准化】
             self.model, self.tokenizer, relative_hidden_states, hidden_layers,
             train_choices=train_labels)
         for layer in direction_finder.directions:
