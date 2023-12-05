@@ -3,18 +3,29 @@ from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 import numpy as np
 from itertools import islice
+import torch
 
-### Util Functions ###
 def project_onto_direction(H, direction):
     """Project matrix H (n, d_1) onto direction vector (d_2,)"""
-    # TODO: should we require direction vectors to be unit vectors? then return H.dot(direction)
-    mag = np.linalg.norm(direction)
-    assert not np.isinf(mag)
-    return H.dot(direction) / mag
+    # Calculate the magnitude of the direction vector
+     # Ensure H and direction are on the same device (CPU or GPU)
+    if type(direction) != torch.Tensor:
+        H = torch.Tensor(H).cuda()
+    if type(direction) != torch.Tensor:
+        direction = torch.Tensor(direction)
+        direction = direction.to(H.device)
+    mag = torch.norm(direction)
+    assert not torch.isinf(mag).any()
+    # Calculate the projection
+    projection = H.matmul(direction) / mag
+    return projection
 
 def recenter(x, mean=None):
+    x = torch.Tensor(x).cuda()
     if mean is None:
-        mean = x.mean(axis=0, keepdims=True)
+        mean = torch.mean(x,axis=0,keepdims=True).cuda()
+    else:
+        mean = torch.Tensor(mean).cuda()
     return x - mean
 
 class RepReader(ABC):
@@ -102,7 +113,6 @@ class RepReader(ABC):
         """
 
         assert component_index < self.n_components
-
         transformed_hidden_states = {}
         for layer in hidden_layers:
             layer_hidden_states = hidden_states[layer]
@@ -112,8 +122,7 @@ class RepReader(ABC):
 
             # project hidden states onto found concept directions (e.g. onto PCA comp 0) 
             H_transformed = project_onto_direction(layer_hidden_states, self.directions[layer][component_index])
-            transformed_hidden_states[layer] = H_transformed
-
+            transformed_hidden_states[layer] = H_transformed.cpu().numpy()       
         return transformed_hidden_states
 
 class PCARepReader(RepReader):
@@ -130,12 +139,11 @@ class PCARepReader(RepReader):
         directions = {}
 
         for layer in hidden_layers:
-            H_train = np.array(hidden_states[layer]) # 提取每一层的差距向量们 shape(train/2, 4096)
-
+            H_train = hidden_states[layer] # 提取每一层的差距向量们 shape(train/2, 4096)
             H_train_mean = H_train.mean(axis=0, keepdims=True) # shape(1, 4096) 对每一列求均值，其实就是对差异向量跨样本求均值
             self.H_train_means[layer] = H_train_mean
-            H_train = recenter(H_train, mean=H_train_mean) # 减去均值【PCA的要求】
-
+            H_train = recenter(H_train, mean=H_train_mean).cpu() # 减去均值【PCA的要求】
+            H_train = np.vstack(H_train)
             pca_model = PCA(n_components=self.n_components, whiten=False).fit(H_train) # 对于每一层都求了一个PCA whiten=False表示不对数据进行标准化处理【方差不是1】
 
             directions[layer] = pca_model.components_ # shape (n_components, n_features)
@@ -158,7 +166,7 @@ class PCARepReader(RepReader):
             layer_signs = np.zeros(self.n_components)
             for component_index in range(self.n_components):
 
-                transformed_hidden_states = project_onto_direction(layer_hidden_states, self.directions[layer][component_index]) # 在第一主成分方向进行投影，shape: (batch,)
+                transformed_hidden_states = project_onto_direction(layer_hidden_states, self.directions[layer][component_index]).cpu()
                 
                 pca_outputs_comp = [list(islice(transformed_hidden_states, sum(len(c) for c in train_labels[:i]), sum(len(c) for c in train_labels[:i+1]))) for i in range(len(train_labels))] # 对于每个训练标签，提取与之对应的投影后的分数。
 
@@ -175,6 +183,8 @@ class PCARepReader(RepReader):
 
         return signs
     
+
+        
 class ClusterMeanRepReader(RepReader):
     """Get the direction that is the difference between the mean of the positive and negative clusters."""
     n_components = 1
