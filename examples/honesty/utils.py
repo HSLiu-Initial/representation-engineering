@@ -35,7 +35,7 @@ def honesty_function_dataset(data_path: str, tokenizer: PreTrainedTokenizer, use
     untruthful_statements = []
 
     # Process statements
-    for statement in true_statements:
+    for statement in true_statements: # 遍历所有true statements，同时去构造正负模板
         tokens = tokenizer.tokenize(statement) # tokenize statement
         
         for idx in range(1, len(tokens) - 5): # iterate over tokens 不包括最后6个token
@@ -46,7 +46,7 @@ def honesty_function_dataset(data_path: str, tokenizer: PreTrainedTokenizer, use
             untruthful_statements.append(f"{user_tag} {template_str.format(type='an untruthful')} {assistant_tag} " + truncated_statement)
 
     # Create training data
-    # ntrain = 512 原始的
+    # ntrain = 512 # 原始的
     ntrain = 2 # 为了测试方便，改成2
     # 为每个配对创建一个子列表，其中包含一个诚实的语句和一个不诚实的语句。
     combined_data = [[honest, untruthful] for honest, untruthful in zip(honest_statements, untruthful_statements)] # combine honest and untruthful statements
@@ -73,7 +73,7 @@ def honesty_function_dataset(data_path: str, tokenizer: PreTrainedTokenizer, use
     }
 
 def plot_detection_results(input_ids, rep_reader_scores_dict, THRESHOLD, start_answer_token=":"):
-
+    # 使用红色、黄色、绿色创建一个颜色映射
     cmap=LinearSegmentedColormap.from_list('rg',["r", (255/255, 255/255, 224/255), "g"], N=256)
     colormap = cmap
 
@@ -115,22 +115,24 @@ def plot_detection_results(input_ids, rep_reader_scores_dict, THRESHOLD, start_a
         rep_scores = np.array(rep_reader_scores_dict[rep])
         mean, std = np.median(rep_scores), rep_scores.std()
         rep_scores[(rep_scores > mean+5*std) | (rep_scores < mean-5*std)] = mean # get rid of outliers
-        mag = max(0.3, np.abs(rep_scores).std() / 10)
+        mag = max(0.3, np.abs(rep_scores).std() / 10) # 计算标准化因子并标准化分数
         min_val, max_val = -mag, mag
         norm = Normalize(vmin=min_val, vmax=max_val)
 
         if "mean" in n_style:
             rep_scores = rep_scores - THRESHOLD # change this for threshold
-            rep_scores = rep_scores / np.std(rep_scores[5:])
-            rep_scores = np.clip(rep_scores, -mag, mag)
-        if "flip" in n_style:
+            rep_scores = rep_scores / np.std(rep_scores[5:]) # 使用剩余分数的标准差对分数进行标准化。
+            rep_scores = np.clip(rep_scores, -mag, mag) # 将分数限制在 [-mag, mag] 的范围内
+        if "flip" in n_style: 
             rep_scores = -rep_scores
         
-        rep_scores[np.abs(rep_scores) < 0.0] = 0
+        rep_scores[np.abs(rep_scores) < 0.0] = 0 # 这一步将所有绝对值小于0的分数设置为0。
 
         # ofs = 0
         # rep_scores = np.array([rep_scores[max(0, i-ofs):min(len(rep_scores), i+ofs)].mean() for i in range(len(rep_scores))]) # add smoothing
-        
+
+        # 如果 s_style 是 "neg"，则将所有正数分数设置为 mag，保留负数分数。
+        # 如果 s_style 是 "pos"，则仅保留正数分数。
         if s_style == "neg":
             rep_scores = np.clip(rep_scores, -np.inf, 0)
             rep_scores[rep_scores == 0] = mag
@@ -180,23 +182,27 @@ def plot_detection_results(input_ids, rep_reader_scores_dict, THRESHOLD, start_a
 
 
 def plot_lat_scans(input_ids, rep_reader_scores_dict, layer_slice):
+    # 遍历代表性分数字典
     for rep, scores in rep_reader_scores_dict.items():
 
+        # 找到输入词汇中“A”开始的位置
         start_tok = input_ids.index('▁A')
         print(start_tok, np.array(scores).shape)
+         # 截取从“A”开始的40个词汇，在指定的层切片上的分数
         standardized_scores = np.array(scores)[start_tok:start_tok+40,layer_slice]
         # print(standardized_scores.shape)
 
-        bound = np.mean(standardized_scores) + np.std(standardized_scores)
-        bound = 2.3
+        bound = np.mean(standardized_scores) + np.std(standardized_scores) # 设置分数的上界
+        bound = 2.3 # 使用固定值作为上界
 
         # standardized_scores = np.array(scores)
-        
+
+        # 设置一个阈值，小于该阈值的分数被设定为1
         threshold = 0
         standardized_scores[np.abs(standardized_scores) < threshold] = 1
-        standardized_scores = standardized_scores.clip(-bound, bound)
+        standardized_scores = standardized_scores.clip(-bound, bound) # 将分数限制在 [-bound, bound] 的范围内
         
-        cmap = 'coolwarm'
+        cmap = 'coolwarm'  # 选择热力图的颜色映射
 
         fig, ax = plt.subplots(figsize=(5, 4), dpi=200)
         sns.heatmap(-standardized_scores.T, cmap=cmap, linewidth=0.5, annot=False, fmt=".3f", vmin=-bound, vmax=bound)

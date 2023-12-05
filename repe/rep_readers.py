@@ -108,7 +108,7 @@ class RepReader(ABC):
             layer_hidden_states = hidden_states[layer]
 
             if hasattr(self, 'H_train_means'):
-                layer_hidden_states = recenter(layer_hidden_states, mean=self.H_train_means[layer])
+                layer_hidden_states = recenter(layer_hidden_states, mean=self.H_train_means[layer]) # 用训练集的mean进行recenter
 
             # project hidden states onto found concept directions (e.g. onto PCA comp 0) 
             H_transformed = project_onto_direction(layer_hidden_states, self.directions[layer][component_index])

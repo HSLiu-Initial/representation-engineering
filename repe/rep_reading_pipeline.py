@@ -21,8 +21,8 @@ class RepReadingPipeline(Pipeline):
     
         hidden_states_layers = {}
         for layer in hidden_layers:
-            hidden_states = outputs['hidden_states'][layer]
-            hidden_states =  hidden_states[:, rep_token, :]
+            hidden_states = outputs['hidden_states'][layer] # 得到某一层所有序列表征的hidden states
+            hidden_states =  hidden_states[:, rep_token, :] # 得到这层的rep_token的hidden states
             hidden_states_layers[layer] = hidden_states.cpu().to(dtype=torch.float32).detach().numpy()
 
         return hidden_states_layers
@@ -77,7 +77,7 @@ class RepReadingPipeline(Pipeline):
                 decoder_input = self.tokenizer(decoder_start_token, return_tensors="pt").input_ids
                 model_inputs['decoder_input_ids'] = decoder_input
             outputs =  self.model(**model_inputs, output_hidden_states=True)
-        hidden_states = self._get_hidden_states(outputs, rep_token, hidden_layers, which_hidden_states)
+        hidden_states = self._get_hidden_states(outputs, rep_token, hidden_layers, which_hidden_states) # dictionary: key: 层 value:这一层的rep_token的hiddenstates
         
         if rep_reader is None:
             return hidden_states
